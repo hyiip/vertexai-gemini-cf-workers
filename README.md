@@ -1,4 +1,6 @@
-# vertexai-cf-workers
+# vertexai-gemini-cf-workers
+
+A Cloudflare workers to proxy Gemini on Vertex AI. Compare to Google AI, Vertex AI use IAM access instead of API key. Therefore, a custom API key is required to authenticate user.
 
 ## Prerequisites
 1. Sign up for a GCP account:
@@ -8,10 +10,7 @@
 2. Enable Vertex AI API:
    - Go to [https://console.cloud.google.com/marketplace/product/google/aiplatform.googleapis.com](https://console.cloud.google.com/marketplace/product/google/aiplatform.googleapis.com) to enable the Vertex AI API for your project.
    
-3. Apply for Claude models:
-   - Go to [https://console.cloud.google.com/vertex-ai](https://console.cloud.google.com/vertex-ai) and apply for access to the Claude models.
-
-4. Create a [Service Account](https://console.cloud.google.com/projectselector/iam-admin/serviceaccounts/create?walkthrough_id=iam--create-service-account#step_index=1):
+3. Create a [Service Account](https://console.cloud.google.com/projectselector/iam-admin/serviceaccounts/create?walkthrough_id=iam--create-service-account#step_index=1):
    - Select the project ID you created earlier.
    - Make sure to grant the role of "Vertex AI User" or "Vertex AI Administrator" to the service account.
    - On the service account page you just created, go to the "Keys" tab and click "Add Key".
@@ -26,3 +25,5 @@ The worker requires several environment variables to be set:
 - `PRIVATE_KEY`: This is the private key associated with your GCP service account. You can find this in your service account's JSON key file.
 - `PROJECT`: This is the ID of your GCP project. You can find this in your service account's JSON key file.
 - `API_KEY`: This is a string that you define. It is used to authenticate requests to the worker.
+
+Set these environment variables by going to the Settings -> Variables page of the worker.

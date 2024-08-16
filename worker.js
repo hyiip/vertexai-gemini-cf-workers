@@ -1,36 +1,20 @@
 const MODELS = {
-    "claude-3-opus": {
-        vertexName: "claude-3-opus@20240229",
-        region: "us-east5",
-    },
-    "claude-3-sonnet": {
-        vertexName: "claude-3-sonnet@20240229",
+    "gemini-1.0-pro": {
+        vertexName: "gemini-1.0-pro-002",
         region: "us-central1",
     },
-    "claude-3-haiku": {
-        vertexName: "claude-3-haiku@20240307",
+    "gemini-1.5-pro-latest": {
+        vertexName: "gemini-1.5-pro-001",
         region: "us-central1",
     },
-    "claude-3-5-sonnet": {
-        vertexName: "claude-3-5-sonnet@20240620",
-        region: "us-east5",
-    },
-    "claude-3-opus-20240229": {
-        vertexName: "claude-3-opus@20240229",
-        region: "us-east5",
-    },
-    "claude-3-sonnet-20240229": {
-        vertexName: "claude-3-sonnet@20240229",
+    "gemini-1.5-flash-latest": {
+        vertexName: "gemini-1.5-flash-001",
         region: "us-central1",
     },
-    "claude-3-haiku-20240307": {
-        vertexName: "claude-3-haiku@20240307",
+    "gemini-pro-vision": {
+        vertexName: "gemini-1.0-pro-vision-001",
         region: "us-central1",
-    },
-    "claude-3-5-sonnet-20240620": {
-        vertexName: "claude-3-5-sonnet@20240620",
-        region: "us-east5",
-    },
+    }
 };
 
 addEventListener("fetch", (event) => {
@@ -49,11 +33,12 @@ async function handleRequest(request) {
         return createErrorResponse(405, "invalid_request_error", "GET method is not allowed");
     }
 
-    const apiKey = request.headers.get("x-api-key");
+    let url = new URL(request.url);
+    const apiKey = url.searchParams.get("key");
     if (!API_KEY || API_KEY !== apiKey) {
         return createErrorResponse(401, "authentication_error", "invalid x-api-key");
     }
-
+    url.searchParams.delete("key");
     const signedJWT = await createSignedJWT(CLIENT_EMAIL, PRIVATE_KEY)
     const [token, err] = await exchangeJwtForAccessToken(signedJWT)
     if (token === null) {
@@ -62,106 +47,79 @@ async function handleRequest(request) {
     }
 
     try {
-        const url = new URL(request.url);
         const normalizedPathname = url.pathname.replace(/^(\/)+/, '/');
-        switch(normalizedPathname) {
-            case "/v1/v1/messages":
-            case "/v1/messages":
-            case "/messages":
-                return handleMessagesEndpoint(request, token);
-            default:
+        const matchResult = normalizedPathname.match(/^(.*\/)[^/]+$/);
+        if (matchResult) {
+            const capturedPath = matchResult[1]
+            switch(capturedPath) {
+              case "/v1/models/":
+              case "/v1beta/models/":
+                return await handleMessagesEndpoint(request, token, url);
+              default:
                 return createErrorResponse(404, "not_found_error", "Not Found");
-        }
+            }
+          } else {
+            return createErrorResponse(404, "not_found_error", "Not Found");
+          }
     } catch (error) {
         console.error(error);
         return createErrorResponse(500, "api_error", "An unexpected error occurred");
     }
 }
  
-async function handleMessagesEndpoint(request, api_token) {
-    const anthropicVersion = request.headers.get('anthropic-version');
-    if (anthropicVersion && anthropicVersion !== '2023-06-01') {
-        return createErrorResponse(400, "invalid_request_error", "API version not supported");
-    }
+async function handleMessagesEndpoint(request, api_token, originalUrl) {
 
-    let payload;
-    try {
-        payload = await request.json();
-    } catch (err) {
-        return createErrorResponse(400, "invalid_request_error", "The request body is not valid JSON.");
-    }
+  // Parse the original path to extract model name and endpoint
+  const pathParts = originalUrl.pathname.split('/');
+  const modelName = pathParts[pathParts.length - 1].split(':')[0];
+  const endpoint = pathParts[pathParts.length - 1].split(':')[1];
 
-    payload.anthropic_version = "vertex-2023-10-16";
+  // Check if the model exists in our MODELS object
+  if (!MODELS[modelName]) {
+    return createErrorResponse(400, "invalid_request_error", `Model '${modelName}' not supported.`);
+  }
 
-    if (!payload.model) {
-        return createErrorResponse(400, "invalid_request_error", "Missing model in the request payload.");
-    } else if (!MODELS[payload.model]) {
-        return createErrorResponse(400, "invalid_request_error", `Model \`${payload.model}\` not found.`);
-    }
+  const model = MODELS[modelName];
 
-    const stream = payload.stream || false;
-    const model = MODELS[payload.model];
-    const url = `https://${model.region}-aiplatform.googleapis.com/v1/projects/${PROJECT}/locations/${model.region}/publishers/anthropic/models/${model.vertexName}:streamRawPredict`;
-    delete payload.model;
+  // Construct the new URL for the Google Cloud AI Platform
+  const gcpUrl = `https://${model.region}-aiplatform.googleapis.com/v1/projects/${PROJECT}/locations/${model.region}/publishers/google/models/${model.vertexName}:${endpoint}`;
 
-    let response, contentType
-    try {
-        response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${api_token}`
-            },
-            body: JSON.stringify(payload)
-        });
-        contentType = response.headers.get("Content-Type") || "application/json";
-    } catch (error) {
-        return createErrorResponse(500, "api_error", "Server Error");
-    }
+  let payload;
+  try {
+    payload = await request.json();
+  } catch (err) {
+    return createErrorResponse(400, "invalid_request_error", "The request body is not valid JSON.");
+  }
 
-    if (stream && contentType.startsWith('text/event-stream')) {
-        if (!(response.body instanceof ReadableStream)) {
-            return createErrorResponse(500, "api_error", "Server Error");
-        }
+  const fetchOptions = {
+    method: request.method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${api_token}`,
+      'Cache-Control': 'no-store',
+    },
+    body: JSON.stringify(payload),
+  };
 
-        const encoder = new TextEncoder();
-        const decoder = new TextDecoder("utf-8");
-        let buffer = '';
-        let { readable, writable } = new TransformStream({
-            transform(chunk, controller) {
-                let decoded = decoder.decode(chunk, { stream: true });
-                buffer += decoded
-                let eventList = buffer.split(/\r\n\r\n|\r\r|\n\n/g);
-                if (eventList.length === 0) return;
-                buffer = eventList.pop();
+  const fetchUrl = `${gcpUrl}?${originalUrl.searchParams}`;
 
-                for (let event of eventList) {
-                    controller.enqueue(encoder.encode(`${event}\n\n`));
-                }
-            },
-        });
-        response.body.pipeTo(writable);
-        return new Response(readable, {
-            status: response.status,
-            headers: {
-                "Content-Type": response.headers.get("Content-Type") || "text/event-stream",
-                "Access-Control-Allow-Origin": "*",
-            },
-        });
-    } else {
-        try {
-            let data = await response.text();
-            return new Response(data, {
-                status: response.status,
-                headers: {
-                    "Content-Type": contentType,
-                    "Access-Control-Allow-Origin": "*",
-                },
-            });
-        } catch (error) {
-            return createErrorResponse(500, "api_error", "Server Error");
-        }
-    }
+  try {
+    const response = await fetch(fetchUrl, fetchOptions);
+
+    // to prevent browser prompt for credentials
+    const newHeaders = new Headers(response.headers);
+    newHeaders.delete("www-authenticate");
+    // to disable nginx buffering
+    newHeaders.set("X-Accel-Buffering", "no");
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: newHeaders,
+    });
+  } catch (error) {
+    return createErrorResponse(500, "api_error", "Server Error");
+  }
 }
 
 function createErrorResponse(status, errorType, message) {
