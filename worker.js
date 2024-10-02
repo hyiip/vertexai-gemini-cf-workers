@@ -4,11 +4,11 @@ const MODELS = {
         region: "us-central1",
     },
     "gemini-1.5-pro-latest": {
-        vertexName: "gemini-1.5-pro-001",
+        vertexName: "gemini-1.5-pro-002",
         region: "us-central1",
     },
     "gemini-1.5-flash-latest": {
-        vertexName: "gemini-1.5-flash-001",
+        vertexName: "gemini-1.5-flash-002",
         region: "us-central1",
     },
     "gemini-pro-vision": {
